@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     to_wallet UUID,
     amount NUMERIC(18,4) NOT NULL,
     status VARCHAR(20) NOT NULL,
+    reason TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT transactions_amount_positive CHECK (amount > 0),
     CONSTRAINT transactions_request_id_key UNIQUE (request_id)

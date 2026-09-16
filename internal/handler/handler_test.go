@@ -1,14 +1,14 @@
 package handler
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"math"
 	"os"
 	"testing"
 	"time"
-
-	"crypto/rand"
 
 	walletnats "github.com/fundingpips/wallet-service/internal/nats"
 	"github.com/fundingpips/wallet-service/internal/storage"
@@ -81,7 +81,7 @@ func TestDepositSameRequestIdIsNotAppliedTwice(t *testing.T) {
 	h(&natsgo.Msg{Data: payload})
 	h(&natsgo.Msg{Data: payload})
 
-	balance, _, err := store.GetWalletBalance(walletID)
+	balance, _, err := store.GetWalletBalance(context.Background(), walletID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestBalanceAfterDepositUsesWallet(t *testing.T) {
 	nc := testNATS(t)
 	walletID := newID()
 
-	if err := store.Deposit(walletID, 80); err != nil {
+	if err := store.Deposit(context.Background(), newID(), walletID, "USD", 80); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,7 +121,7 @@ func TestWithdrawNegativeAmountDoesNotChangeBalance(t *testing.T) {
 	store := testStore(t)
 	nc := testNATS(t)
 	walletID := newID()
-	if err := store.Deposit(walletID, 30); err != nil {
+	if err := store.Deposit(context.Background(), newID(), walletID, "USD", 30); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +136,7 @@ func TestWithdrawNegativeAmountDoesNotChangeBalance(t *testing.T) {
 	}
 	HandleWithdraw(store, nc)(&natsgo.Msg{Data: payload})
 
-	balance, _, err := store.GetWalletBalance(walletID)
+	balance, _, err := store.GetWalletBalance(context.Background(), walletID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestTransferToSameWalletIsRejected(t *testing.T) {
 	nc := testNATS(t)
 	walletID := newID()
 	requestID := newID()
-	if err := store.Deposit(walletID, 20); err != nil {
+	if err := store.Deposit(context.Background(), newID(), walletID, "USD", 20); err != nil {
 		t.Fatal(err)
 	}
 
@@ -184,7 +184,7 @@ func TestTransferToSameWalletIsRejected(t *testing.T) {
 		t.Fatal("expected failed event for transfer to same wallet")
 	}
 
-	balance, _, err := store.GetWalletBalance(walletID)
+	balance, _, err := store.GetWalletBalance(context.Background(), walletID)
 	if err != nil {
 		t.Fatal(err)
 	}

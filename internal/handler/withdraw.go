@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -24,17 +25,12 @@ func HandleWithdraw(store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
 			return
 		}
 
-		if err := store.Withdraw(req.WalletID, req.Amount); err != nil {
+		if err := store.Withdraw(context.Background(), req.RequestID, req.WalletID, req.Currency, req.Amount); err != nil {
 			fmt.Println("withdraw failed:", err)
 			publishFailed(nc, req.RequestID, "withdraw", err.Error())
 			return
 		}
 
 		publishCompleted(nc, req.RequestID, "withdraw")
-
-		fromWallet := req.WalletID
-		if err := store.RecordTransaction(req.RequestID, "withdraw", &fromWallet, nil, req.Amount, "completed"); err != nil {
-			fmt.Println("withdraw: failed to record transaction:", err)
-		}
 	}
 }

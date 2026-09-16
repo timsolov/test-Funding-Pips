@@ -19,6 +19,7 @@ func (s *Store) migrate() error {
 			status VARCHAR(20) NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
 		)`,
+		`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reason TEXT`,
 		`DELETE FROM transactions a USING transactions b WHERE a.request_id IS NOT NULL AND a.request_id = b.request_id AND a.id > b.id`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS transactions_request_id_uidx ON transactions (request_id)`,
 		`ALTER TABLE wallets DROP CONSTRAINT IF EXISTS wallets_balance_non_negative`,

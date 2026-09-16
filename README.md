@@ -225,3 +225,15 @@ Code can have bugs, so I also put rules in postgres:
 - transaction `amount` must be bigger than 0
 
 The service now runs this on start, so it works even if postgres volume already exist. If old rows have the same `request_id` two times (because of the bug), migrate keeps the oldest row. I use `NOT VALID` for check constraints so old bad rows (from tests) do not block migrate. New writes still cannot break the rules. This is not the full fix yet, it is only extra safety in the database.
+
+### Atomic operations
+
+This is the main money fix.
+
+Deposit, withdraw and transfer now run in one postgres transaction. The ledger row is written in the same transaction as the balance change, so they cannot go out of sync.
+
+For withdraw I don't do select-then-update anymore. I do `UPDATE ... WHERE balance >= amount`. If two withdraws come at the same time, only one can take the last money.
+
+Transfer lock both wallets (`FOR UPDATE`) in a stable order, so we don't get deadlocks. If the destination wallet does not exist, the whole transfer is cancelled and sender keep the money. This was the support ticket.
+
+Same `request_id` is checked before we move money. If we already finished this request, we return the same result and we do not apply it again. Finance asked about this.

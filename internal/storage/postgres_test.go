@@ -1,13 +1,13 @@
 package storage
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"math"
 	"os"
 	"sync"
 	"testing"
-
-	"crypto/rand"
 )
 
 func testStore(t *testing.T) *Store {
@@ -44,10 +44,11 @@ func assertAmount(t *testing.T, got, want float64) {
 
 func TestConcurrentWithdrawDoesNotOverdraw(t *testing.T) {
 	store := testStore(t)
+	ctx := context.Background()
 
 	for round := 0; round < 8; round++ {
 		walletID := newID()
-		if err := store.Deposit(walletID, 100); err != nil {
+		if err := store.Deposit(ctx, newID(), walletID, "USD", 100); err != nil {
 			t.Fatal(err)
 		}
 
@@ -57,12 +58,12 @@ func TestConcurrentWithdrawDoesNotOverdraw(t *testing.T) {
 		for i := 0; i < workers; i++ {
 			go func() {
 				defer wg.Done()
-				_ = store.Withdraw(walletID, 10)
+				_ = store.Withdraw(ctx, newID(), walletID, "USD", 10)
 			}()
 		}
 		wg.Wait()
 
-		balance, _, err := store.GetWalletBalance(walletID)
+		balance, _, err := store.GetWalletBalance(ctx, walletID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,18 +76,19 @@ func TestConcurrentWithdrawDoesNotOverdraw(t *testing.T) {
 
 func TestTransferToMissingWalletDoesNotLoseMoney(t *testing.T) {
 	store := testStore(t)
+	ctx := context.Background()
 	from := newID()
 	to := newID()
-	if err := store.Deposit(from, 100); err != nil {
+	if err := store.Deposit(ctx, newID(), from, "USD", 100); err != nil {
 		t.Fatal(err)
 	}
 
-	err := store.Transfer(from, to, 40)
+	err := store.Transfer(ctx, newID(), from, to, "USD", 40)
 	if err == nil {
 		t.Fatal("expected error when destination wallet does not exist")
 	}
 
-	balance, _, err := store.GetWalletBalance(from)
+	balance, _, err := store.GetWalletBalance(ctx, from)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,16 +97,17 @@ func TestTransferToMissingWalletDoesNotLoseMoney(t *testing.T) {
 
 func TestNegativeWithdrawIsRejected(t *testing.T) {
 	store := testStore(t)
+	ctx := context.Background()
 	walletID := newID()
-	if err := store.Deposit(walletID, 50); err != nil {
+	if err := store.Deposit(ctx, newID(), walletID, "USD", 50); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := store.Withdraw(walletID, -10); err == nil {
+	if err := store.Withdraw(ctx, newID(), walletID, "USD", -10); err == nil {
 		t.Fatal("expected error for negative amount")
 	}
 
-	balance, _, err := store.GetWalletBalance(walletID)
+	balance, _, err := store.GetWalletBalance(ctx, walletID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,12 +116,13 @@ func TestNegativeWithdrawIsRejected(t *testing.T) {
 
 func TestBalanceMatchesWalletAfterDepositWithoutLedger(t *testing.T) {
 	store := testStore(t)
+	ctx := context.Background()
 	walletID := newID()
-	if err := store.Deposit(walletID, 75); err != nil {
+	if err := store.Deposit(ctx, newID(), walletID, "USD", 75); err != nil {
 		t.Fatal(err)
 	}
 
-	walletBalance, _, err := store.GetWalletBalance(walletID)
+	walletBalance, _, err := store.GetWalletBalance(ctx, walletID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,4 +133,24 @@ func TestBalanceMatchesWalletAfterDepositWithoutLedger(t *testing.T) {
 	if math.Abs(walletBalance-ledgerBalance) > 0.0001 {
 		t.Fatalf("wallet balance %v and ledger balance %v are different", walletBalance, ledgerBalance)
 	}
+}
+
+func TestSameRequestIdIsNotAppliedTwice(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	walletID := newID()
+	requestID := newID()
+
+	if err := store.Deposit(ctx, requestID, walletID, "USD", 50); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Deposit(ctx, requestID, walletID, "USD", 50); err != nil {
+		t.Fatal(err)
+	}
+
+	balance, _, err := store.GetWalletBalance(ctx, walletID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAmount(t, balance, 50)
 }

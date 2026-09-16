@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -26,7 +27,7 @@ func HandleBalance(store *storage.Store) natsgo.MsgHandler {
 			return
 		}
 
-		_, currency, err := store.GetWalletBalance(req.WalletID)
+		_, currency, err := store.GetWalletBalance(context.Background(), req.WalletID)
 		if err != nil {
 			fmt.Println("balance: wallet lookup failed:", err)
 			return
