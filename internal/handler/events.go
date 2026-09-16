@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/fundingpips/wallet-service/internal/nats"
 )
 
 const opTimeout = 5 * time.Second
@@ -18,7 +16,7 @@ type Event struct {
 	Timestamp string  `json:"timestamp"`
 }
 
-func publishCompleted(ctx context.Context, nc *nats.Client, requestID, operation string) {
+func publishCompleted(ctx context.Context, nc Publisher, requestID, operation string) {
 	if err := nc.PublishEvent(ctx, "wallet.events.completed", Event{
 		RequestID: requestID,
 		Operation: operation,
@@ -29,7 +27,7 @@ func publishCompleted(ctx context.Context, nc *nats.Client, requestID, operation
 	}
 }
 
-func publishFailed(ctx context.Context, nc *nats.Client, requestID, operation, reason string) {
+func publishFailed(ctx context.Context, nc Publisher, requestID, operation, reason string) {
 	if err := nc.PublishEvent(ctx, "wallet.events.failed", Event{
 		RequestID: requestID,
 		Operation: operation,

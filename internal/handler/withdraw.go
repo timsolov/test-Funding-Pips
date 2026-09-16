@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/fundingpips/wallet-service/internal/nats"
-	"github.com/fundingpips/wallet-service/internal/storage"
 	natsgo "github.com/nats-io/nats.go"
 )
 
@@ -17,7 +15,7 @@ type WithdrawRequest struct {
 	Currency  string  `json:"currency"`
 }
 
-func HandleWithdraw(ctx context.Context, store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
+func HandleWithdraw(ctx context.Context, store Store, nc Publisher) natsgo.MsgHandler {
 	return func(msg *natsgo.Msg) {
 		reqCtx, cancel := context.WithTimeout(ctx, opTimeout)
 		defer cancel()

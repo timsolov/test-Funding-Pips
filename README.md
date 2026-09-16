@@ -254,3 +254,7 @@ Completed / failed events are published only after the database commit.
 Before, handlers used `context.Background()`, so SIGTERM cannot stop in-flight SQL. Now `main` use `signal.NotifyContext` and pass this context down: postgres ping/migrate, nats connect, and every handler.
 
 Each message get a 5s timeout from that parent context. On shutdown we drain NATS (with 10s timeout) and then close postgres. If drain is too slow we force close.
+
+### Accept interfaces, return structs
+
+Handlers now take `Store` and `Publisher` interfaces, not `*storage.Store` and `*nats.Client`. `main` still create the real structs (`NewStore`, `Connect`) and pass them in. This is the Go rule: accept interfaces, return structs. It also make tests easier later, we can fake store or nats without changing handlers.

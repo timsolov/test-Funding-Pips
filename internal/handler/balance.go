@@ -20,7 +20,7 @@ type BalanceResponse struct {
 	Currency string  `json:"currency"`
 }
 
-func HandleBalance(ctx context.Context, store *storage.Store) natsgo.MsgHandler {
+func HandleBalance(ctx context.Context, store Store) natsgo.MsgHandler {
 	return func(msg *natsgo.Msg) {
 		reqCtx, cancel := context.WithTimeout(ctx, opTimeout)
 		defer cancel()
