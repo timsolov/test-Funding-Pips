@@ -215,3 +215,13 @@ I added tests before I change the service. They show the real money bugs that pe
 This tests need postgres and nats (`docker-compose up -d nats postgres`), then `go test ./...`.
 
 Right now tests fail. That is expected, because the bugs are still in the code. After I fix it, same tests should pass. This is how I prove the problem was real and that the fix actually works.
+
+### Database constraints
+
+Code can have bugs, so I also put rules in postgres:
+
+- `request_id` must be unique. This is needed later for retries, so the same request cannot be saved two times.
+- wallet `balance` cannot go below 0
+- transaction `amount` must be bigger than 0
+
+The service now runs this on start, so it works even if postgres volume already exist. If old rows have the same `request_id` two times (because of the bug), migrate keeps the oldest row. I use `NOT VALID` for check constraints so old bad rows (from tests) do not block migrate. New writes still cannot break the rules. This is not the full fix yet, it is only extra safety in the database.

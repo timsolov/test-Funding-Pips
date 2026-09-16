@@ -22,7 +22,12 @@ func NewStore(pgURL string) (*Store, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
-	return &Store{DB: db}, nil
+	store := &Store{DB: db}
+	if err := store.migrate(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return store, nil
 }
 
 func (s *Store) Close() error {
