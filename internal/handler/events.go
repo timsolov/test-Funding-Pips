@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/fundingpips/wallet-service/internal/nats"
 )
+
+const opTimeout = 5 * time.Second
 
 type Event struct {
 	RequestID string  `json:"request_id"`
@@ -15,8 +18,8 @@ type Event struct {
 	Timestamp string  `json:"timestamp"`
 }
 
-func publishCompleted(nc *nats.Client, requestID, operation string) {
-	if err := nc.PublishEvent("wallet.events.completed", Event{
+func publishCompleted(ctx context.Context, nc *nats.Client, requestID, operation string) {
+	if err := nc.PublishEvent(ctx, "wallet.events.completed", Event{
 		RequestID: requestID,
 		Operation: operation,
 		Status:    "completed",
@@ -26,8 +29,8 @@ func publishCompleted(nc *nats.Client, requestID, operation string) {
 	}
 }
 
-func publishFailed(nc *nats.Client, requestID, operation, reason string) {
-	if err := nc.PublishEvent("wallet.events.failed", Event{
+func publishFailed(ctx context.Context, nc *nats.Client, requestID, operation, reason string) {
+	if err := nc.PublishEvent(ctx, "wallet.events.failed", Event{
 		RequestID: requestID,
 		Operation: operation,
 		Status:    "failed",

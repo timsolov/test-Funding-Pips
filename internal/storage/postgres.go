@@ -23,17 +23,17 @@ type Store struct {
 	DB *sql.DB
 }
 
-func NewStore(pgURL string) (*Store, error) {
+func NewStore(ctx context.Context, pgURL string) (*Store, error) {
 	db, err := sql.Open("postgres", pgURL)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	db.SetMaxOpenConns(10)
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 	store := &Store{DB: db}
-	if err := store.migrate(); err != nil {
+	if err := store.migrate(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -170,9 +170,9 @@ func (s *Store) GetWalletBalance(ctx context.Context, walletID string) (float64,
 	return balance, currency, err
 }
 
-func (s *Store) SumBalanceFromTransactions(walletID string) (float64, error) {
+func (s *Store) SumBalanceFromTransactions(ctx context.Context, walletID string) (float64, error) {
 	var balance float64
-	err := s.DB.QueryRow(`
+	err := s.DB.QueryRowContext(ctx, `
 		SELECT COALESCE(
 			SUM(CASE WHEN to_wallet = $1 THEN amount ELSE 0 END) -
 			SUM(CASE WHEN from_wallet = $1 THEN amount ELSE 0 END),

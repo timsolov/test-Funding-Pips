@@ -17,24 +17,27 @@ type WithdrawRequest struct {
 	Currency  string  `json:"currency"`
 }
 
-func HandleWithdraw(store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
+func HandleWithdraw(ctx context.Context, store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
 	return func(msg *natsgo.Msg) {
+		reqCtx, cancel := context.WithTimeout(ctx, opTimeout)
+		defer cancel()
+
 		var req WithdrawRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			fmt.Println("withdraw: bad payload:", err)
 			return
 		}
 		if !validUUID(req.RequestID) || !validUUID(req.WalletID) || !validAmount(req.Amount) || !validCurrency(req.Currency) {
-			publishFailed(nc, req.RequestID, "withdraw", "invalid request")
+			publishFailed(reqCtx, nc, req.RequestID, "withdraw", "invalid request")
 			return
 		}
 
-		if err := store.Withdraw(context.Background(), req.RequestID, req.WalletID, req.Currency, req.Amount); err != nil {
+		if err := store.Withdraw(reqCtx, req.RequestID, req.WalletID, req.Currency, req.Amount); err != nil {
 			fmt.Println("withdraw failed:", err)
-			publishFailed(nc, req.RequestID, "withdraw", err.Error())
+			publishFailed(reqCtx, nc, req.RequestID, "withdraw", err.Error())
 			return
 		}
 
-		publishCompleted(nc, req.RequestID, "withdraw")
+		publishCompleted(reqCtx, nc, req.RequestID, "withdraw")
 	}
 }

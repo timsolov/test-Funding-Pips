@@ -16,7 +16,7 @@ func testStore(t *testing.T) *Store {
 	if url == "" {
 		url = "postgres://walletuser:walletpass@localhost:5432/wallet?sslmode=disable"
 	}
-	store, err := NewStore(url)
+	store, err := NewStore(context.Background(), url)
 	if err != nil {
 		t.Fatalf("cannot connect to postgres, run docker-compose up -d nats postgres: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestBalanceMatchesWalletAfterDepositWithoutLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledgerBalance, err := store.SumBalanceFromTransactions(walletID)
+	ledgerBalance, err := store.SumBalanceFromTransactions(ctx, walletID)
 	if err != nil {
 		t.Fatal(err)
 	}

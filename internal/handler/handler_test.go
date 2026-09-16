@@ -21,7 +21,7 @@ func testStore(t *testing.T) *storage.Store {
 	if url == "" {
 		url = "postgres://walletuser:walletpass@localhost:5432/wallet?sslmode=disable"
 	}
-	store, err := storage.NewStore(url)
+	store, err := storage.NewStore(context.Background(), url)
 	if err != nil {
 		t.Fatalf("cannot connect to postgres, run docker-compose up -d nats postgres: %v", err)
 	}
@@ -35,7 +35,7 @@ func testNATS(t *testing.T) *walletnats.Client {
 	if url == "" {
 		url = "nats://localhost:4222"
 	}
-	nc, err := walletnats.Connect(url)
+	nc, err := walletnats.Connect(context.Background(), url)
 	if err != nil {
 		t.Fatalf("cannot connect to nats, run docker-compose up -d nats postgres: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestDepositSameRequestIdIsNotAppliedTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := HandleDeposit(store, nc)
+	h := HandleDeposit(context.Background(), store, nc)
 	h(&natsgo.Msg{Data: payload})
 	h(&natsgo.Msg{Data: payload})
 
@@ -97,7 +97,7 @@ func TestBalanceAfterDepositUsesWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := nc.Conn.Subscribe("wallet.balance.test."+walletID, HandleBalance(store)); err != nil {
+	if _, err := nc.Conn.Subscribe("wallet.balance.test."+walletID, HandleBalance(context.Background(), store)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +134,7 @@ func TestWithdrawNegativeAmountDoesNotChangeBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	HandleWithdraw(store, nc)(&natsgo.Msg{Data: payload})
+	HandleWithdraw(context.Background(), store, nc)(&natsgo.Msg{Data: payload})
 
 	balance, _, err := store.GetWalletBalance(context.Background(), walletID)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestTransferToSameWalletIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	HandleTransfer(store, nc)(&natsgo.Msg{Data: payload})
+	HandleTransfer(context.Background(), store, nc)(&natsgo.Msg{Data: payload})
 
 	select {
 	case msg := <-failed:
@@ -197,7 +197,7 @@ func TestBalanceMissingWalletReplies(t *testing.T) {
 	walletID := newID()
 	subject := "wallet.balance.missing." + walletID
 
-	if _, err := nc.Conn.Subscribe(subject, HandleBalance(store)); err != nil {
+	if _, err := nc.Conn.Subscribe(subject, HandleBalance(context.Background(), store)); err != nil {
 		t.Fatal(err)
 	}
 

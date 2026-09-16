@@ -20,8 +20,11 @@ type BalanceResponse struct {
 	Currency string  `json:"currency"`
 }
 
-func HandleBalance(store *storage.Store) natsgo.MsgHandler {
+func HandleBalance(ctx context.Context, store *storage.Store) natsgo.MsgHandler {
 	return func(msg *natsgo.Msg) {
+		reqCtx, cancel := context.WithTimeout(ctx, opTimeout)
+		defer cancel()
+
 		var req BalanceRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			fmt.Println("balance: bad payload:", err)
@@ -36,7 +39,7 @@ func HandleBalance(store *storage.Store) natsgo.MsgHandler {
 			return
 		}
 
-		balance, currency, err := store.GetWalletBalance(context.Background(), req.WalletID)
+		balance, currency, err := store.GetWalletBalance(reqCtx, req.WalletID)
 		if err != nil {
 			if errors.Is(err, storage.ErrWalletNotFound) {
 				data, _ := json.Marshal(map[string]string{

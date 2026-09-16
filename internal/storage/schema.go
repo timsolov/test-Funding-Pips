@@ -1,6 +1,8 @@
 package storage
 
-func (s *Store) migrate() error {
+import "context"
+
+func (s *Store) migrate(ctx context.Context) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS wallets (
 			wallet_id UUID PRIMARY KEY,
@@ -28,7 +30,7 @@ func (s *Store) migrate() error {
 		`ALTER TABLE transactions ADD CONSTRAINT transactions_amount_positive CHECK (amount > 0) NOT VALID`,
 	}
 	for _, stmt := range stmts {
-		if _, err := s.DB.Exec(stmt); err != nil {
+		if _, err := s.DB.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}

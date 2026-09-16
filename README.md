@@ -248,3 +248,9 @@ I check UUID, amount `> 0` and currency (3 uppercase letters, or empty = USD) be
 I also use a NATS queue group `wallet-workers`, so two instances dont process the same message. Subscribe errors stop the process. On shutdown I drain NATS connections.
 
 Completed / failed events are published only after the database commit.
+
+### Graceful shutdown and context
+
+Before, handlers used `context.Background()`, so SIGTERM cannot stop in-flight SQL. Now `main` use `signal.NotifyContext` and pass this context down: postgres ping/migrate, nats connect, and every handler.
+
+Each message get a 5s timeout from that parent context. On shutdown we drain NATS (with 10s timeout) and then close postgres. If drain is too slow we force close.
