@@ -266,3 +266,17 @@ If deposit/withdraw/transfer fail after some SQL already ran, I do not commit th
 ### More tests
 
 I added tests for a normal transfer, not enough money, currency mismatch, and same `request_id` with a different amount. Different payload with the same id is now an error, money is not moved. I also added small handler tests with a fake store, so bad JSON does not call the database.
+
+### Assumptions
+
+- Wallet is created only on first **deposit**, like the original README. Transfer never creates a wallet.
+- Same `request_id` always means the same attempt. If it failed (for example insufficient funds), retry with the same id returns the same fail. To try again, send a new `request_id`.
+- If the same `request_id` comes again with a different amount or wallets, this is an error (`request_id already used with different payload`).
+- If currencies on two wallets are different, transfer fail.
+- Amounts are still `float64` in Go. Postgres uses `NUMERIC(18,4)`. I did not change this in the code, but I am against `float64` for money. `float64` is not an exact type, so in financial services people usually use an integer (cents or kopecks) or `Decimal` (as far as I know it stores two integers inside). Simple example: `1.1 + 2.2 == 3.3` is `false` with `float64` — https://go.dev/play/p/gtwGZZiW6J8 . Tests use simple amounts like `10` and `50`.
+
+### What I did not do
+
+- JetStream / durable consumers / outbox for events. Events can still be lost if NATS publish fail after commit.
+- Change `float64` to `shopspring/decimal` or integer cents.
+- Metrics, tracing, structured logger. I kept `fmt.Println` like the original code.
