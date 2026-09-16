@@ -262,3 +262,7 @@ Handlers now take `Store` and `Publisher` interfaces, not `*storage.Store` and `
 ### Rollback money if the operation fail
 
 If deposit/withdraw/transfer fail after some SQL already ran, I do not commit that. The money transaction is rolled back, and the failed row is saved in a new transaction. So a broken transfer cannot keep the debit and mark the request as failed at the same time.
+
+### More tests
+
+I added tests for a normal transfer, not enough money, currency mismatch, and same `request_id` with a different amount. Different payload with the same id is now an error, money is not moved. I also added small handler tests with a fake store, so bad JSON does not call the database.
