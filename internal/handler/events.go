@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/fundingpips/wallet-service/internal/nats"
@@ -15,20 +16,24 @@ type Event struct {
 }
 
 func publishCompleted(nc *nats.Client, requestID, operation string) {
-	nc.PublishEvent("wallet.events.completed", Event{
+	if err := nc.PublishEvent("wallet.events.completed", Event{
 		RequestID: requestID,
 		Operation: operation,
 		Status:    "completed",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	})
+	}); err != nil {
+		fmt.Println("publish completed failed:", err)
+	}
 }
 
 func publishFailed(nc *nats.Client, requestID, operation, reason string) {
-	nc.PublishEvent("wallet.events.failed", Event{
+	if err := nc.PublishEvent("wallet.events.failed", Event{
 		RequestID: requestID,
 		Operation: operation,
 		Status:    "failed",
 		Reason:    &reason,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	})
+	}); err != nil {
+		fmt.Println("publish failed event failed:", err)
+	}
 }

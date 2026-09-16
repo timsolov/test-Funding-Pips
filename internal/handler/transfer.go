@@ -25,6 +25,14 @@ func HandleTransfer(store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
 			fmt.Println("transfer: bad payload:", err)
 			return
 		}
+		if !validUUID(req.RequestID) || !validUUID(req.FromWalletID) || !validUUID(req.ToWalletID) || !validAmount(req.Amount) || !validCurrency(req.Currency) {
+			publishFailed(nc, req.RequestID, "transfer", "invalid request")
+			return
+		}
+		if req.FromWalletID == req.ToWalletID {
+			publishFailed(nc, req.RequestID, "transfer", storage.ErrSameWallet.Error())
+			return
+		}
 
 		if err := store.Transfer(context.Background(), req.RequestID, req.FromWalletID, req.ToWalletID, req.Currency, req.Amount); err != nil {
 			fmt.Println("transfer failed:", err)

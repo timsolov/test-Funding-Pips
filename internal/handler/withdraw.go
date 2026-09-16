@@ -24,6 +24,10 @@ func HandleWithdraw(store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
 			fmt.Println("withdraw: bad payload:", err)
 			return
 		}
+		if !validUUID(req.RequestID) || !validUUID(req.WalletID) || !validAmount(req.Amount) || !validCurrency(req.Currency) {
+			publishFailed(nc, req.RequestID, "withdraw", "invalid request")
+			return
+		}
 
 		if err := store.Withdraw(context.Background(), req.RequestID, req.WalletID, req.Currency, req.Amount); err != nil {
 			fmt.Println("withdraw failed:", err)

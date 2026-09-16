@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/fundingpips/wallet-service/internal/storage"
@@ -26,16 +27,26 @@ func HandleBalance(store *storage.Store) natsgo.MsgHandler {
 			fmt.Println("balance: bad payload:", err)
 			return
 		}
-
-		_, currency, err := store.GetWalletBalance(context.Background(), req.WalletID)
-		if err != nil {
-			fmt.Println("balance: wallet lookup failed:", err)
+		if !validUUID(req.WalletID) {
+			data, _ := json.Marshal(map[string]string{
+				"wallet_id": req.WalletID,
+				"error":     "invalid request",
+			})
+			_ = msg.Respond(data)
 			return
 		}
 
-		balance, err := store.SumBalanceFromTransactions(req.WalletID)
+		balance, currency, err := store.GetWalletBalance(context.Background(), req.WalletID)
 		if err != nil {
-			fmt.Println("balance: query failed:", err)
+			if errors.Is(err, storage.ErrWalletNotFound) {
+				data, _ := json.Marshal(map[string]string{
+					"wallet_id": req.WalletID,
+					"error":     "wallet not found",
+				})
+				_ = msg.Respond(data)
+				return
+			}
+			fmt.Println("balance: wallet lookup failed:", err)
 			return
 		}
 
@@ -44,7 +55,13 @@ func HandleBalance(store *storage.Store) natsgo.MsgHandler {
 			Balance:  balance,
 			Currency: currency,
 		}
-		data, _ := json.Marshal(resp)
-		msg.Respond(data)
+		data, err := json.Marshal(resp)
+		if err != nil {
+			fmt.Println("balance: marshal failed:", err)
+			return
+		}
+		if err := msg.Respond(data); err != nil {
+			fmt.Println("balance: respond failed:", err)
+		}
 	}
 }

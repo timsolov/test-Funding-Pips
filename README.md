@@ -237,3 +237,14 @@ For withdraw I don't do select-then-update anymore. I do `UPDATE ... WHERE balan
 Transfer lock both wallets (`FOR UPDATE`) in a stable order, so we don't get deadlocks. If the destination wallet does not exist, the whole transfer is cancelled and sender keep the money. This was the support ticket.
 
 Same `request_id` is checked before we move money. If we already finished this request, we return the same result and we do not apply it again. Finance asked about this.
+
+
+### Validate requests and read the real balance
+
+I check UUID, amount `> 0` and currency (3 uppercase letters, or empty = USD) before we touch the database. Transfer to the same wallet is rejected.
+
+`wallet.balance` now reads `wallets.balance`. This is the operational balance. If wallet does not exist, we still reply (`error: wallet not found`) so the client is not waiting forever.
+
+I also use a NATS queue group `wallet-workers`, so two instances dont process the same message. Subscribe errors stop the process. On shutdown I drain NATS connections.
+
+Completed / failed events are published only after the database commit.

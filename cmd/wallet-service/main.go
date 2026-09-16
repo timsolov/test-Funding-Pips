@@ -31,10 +31,22 @@ func main() {
 	defer nc.Close()
 	fmt.Println("connected to nats")
 
-	nc.Conn.Subscribe("wallet.deposit", handler.HandleDeposit(store, nc))
-	nc.Conn.Subscribe("wallet.withdraw", handler.HandleWithdraw(store, nc))
-	nc.Conn.Subscribe("wallet.transfer", handler.HandleTransfer(store, nc))
-	nc.Conn.Subscribe("wallet.balance", handler.HandleBalance(store))
+	if _, err := nc.Conn.QueueSubscribe("wallet.deposit", "wallet-workers", handler.HandleDeposit(store, nc)); err != nil {
+		fmt.Println("subscribe deposit failed:", err)
+		os.Exit(1)
+	}
+	if _, err := nc.Conn.QueueSubscribe("wallet.withdraw", "wallet-workers", handler.HandleWithdraw(store, nc)); err != nil {
+		fmt.Println("subscribe withdraw failed:", err)
+		os.Exit(1)
+	}
+	if _, err := nc.Conn.QueueSubscribe("wallet.transfer", "wallet-workers", handler.HandleTransfer(store, nc)); err != nil {
+		fmt.Println("subscribe transfer failed:", err)
+		os.Exit(1)
+	}
+	if _, err := nc.Conn.QueueSubscribe("wallet.balance", "wallet-workers", handler.HandleBalance(store)); err != nil {
+		fmt.Println("subscribe balance failed:", err)
+		os.Exit(1)
+	}
 
 	fmt.Println("wallet-service is running")
 
@@ -42,4 +54,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	fmt.Println("shutting down")
+	if err := nc.Conn.Drain(); err != nil {
+		fmt.Println("nats drain failed:", err)
+	}
 }

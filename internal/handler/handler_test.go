@@ -97,7 +97,7 @@ func TestBalanceAfterDepositUsesWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := nc.Conn.Subscribe("wallet.balance.test", HandleBalance(store)); err != nil {
+	if _, err := nc.Conn.Subscribe("wallet.balance.test."+walletID, HandleBalance(store)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +105,7 @@ func TestBalanceAfterDepositUsesWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, err := nc.Conn.Request("wallet.balance.test", req, 3*time.Second)
+	msg, err := nc.Conn.Request("wallet.balance.test."+walletID, req, 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,4 +189,32 @@ func TestTransferToSameWalletIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertAmount(t, balance, 20)
+}
+
+func TestBalanceMissingWalletReplies(t *testing.T) {
+	store := testStore(t)
+	nc := testNATS(t)
+	walletID := newID()
+	subject := "wallet.balance.missing." + walletID
+
+	if _, err := nc.Conn.Subscribe(subject, HandleBalance(store)); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := json.Marshal(BalanceRequest{WalletID: walletID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := nc.Conn.Request(subject, req, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["error"] != "wallet not found" {
+		t.Fatalf("got %#v", resp)
+	}
 }

@@ -24,6 +24,10 @@ func HandleDeposit(store *storage.Store, nc *nats.Client) natsgo.MsgHandler {
 			fmt.Println("deposit: bad payload:", err)
 			return
 		}
+		if !validUUID(req.RequestID) || !validUUID(req.WalletID) || !validAmount(req.Amount) || !validCurrency(req.Currency) {
+			publishFailed(nc, req.RequestID, "deposit", "invalid request")
+			return
+		}
 
 		if err := store.Deposit(context.Background(), req.RequestID, req.WalletID, req.Currency, req.Amount); err != nil {
 			fmt.Println("deposit failed:", err)
