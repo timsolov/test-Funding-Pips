@@ -201,3 +201,17 @@ behind those choices. Commit as you go rather than dropping everything in one fi
 This is the original wallet-service, I almost did not touch it yet. I only fixed `.gitignore` because `wallet-service` was ignoring `cmd/wallet-service` and the main file was not going into git.
 
 I will change things in small commits. For every change I write here why I did it.
+
+### Tests first
+
+I added tests before I change the service. They show the real money bugs that people was complaining about:
+
+- many withdraws at the same time can make balance negative
+- transfer to a wallet that not exist still takes money from sender
+- same `request_id` can be applied two times
+- balance is calculated from `transactions`, so it can be wrong if ledger is not updated
+- negative withdraw can add money to the wallet
+
+This tests need postgres and nats (`docker-compose up -d nats postgres`), then `go test ./...`.
+
+Right now tests fail. That is expected, because the bugs are still in the code. After I fix it, same tests should pass. This is how I prove the problem was real and that the fix actually works.

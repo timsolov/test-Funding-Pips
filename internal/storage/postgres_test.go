@@ -1,0 +1,132 @@
+package storage
+
+import (
+	"encoding/hex"
+	"math"
+	"os"
+	"sync"
+	"testing"
+
+	"crypto/rand"
+)
+
+func testStore(t *testing.T) *Store {
+	t.Helper()
+	url := os.Getenv("PG_URL")
+	if url == "" {
+		url = "postgres://walletuser:walletpass@localhost:5432/wallet?sslmode=disable"
+	}
+	store, err := NewStore(url)
+	if err != nil {
+		t.Fatalf("cannot connect to postgres, run docker-compose up -d nats postgres: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+func newID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	s := hex.EncodeToString(b)
+	return s[0:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:32]
+}
+
+func assertAmount(t *testing.T, got, want float64) {
+	t.Helper()
+	if math.Abs(got-want) > 0.0001 {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestConcurrentWithdrawDoesNotOverdraw(t *testing.T) {
+	store := testStore(t)
+
+	for round := 0; round < 8; round++ {
+		walletID := newID()
+		if err := store.Deposit(walletID, 100); err != nil {
+			t.Fatal(err)
+		}
+
+		const workers = 20
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for i := 0; i < workers; i++ {
+			go func() {
+				defer wg.Done()
+				_ = store.Withdraw(walletID, 10)
+			}()
+		}
+		wg.Wait()
+
+		balance, _, err := store.GetWalletBalance(walletID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if balance < 0 {
+			t.Fatalf("balance went negative: %v", balance)
+		}
+		assertAmount(t, balance, 0)
+	}
+}
+
+func TestTransferToMissingWalletDoesNotLoseMoney(t *testing.T) {
+	store := testStore(t)
+	from := newID()
+	to := newID()
+	if err := store.Deposit(from, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.Transfer(from, to, 40)
+	if err == nil {
+		t.Fatal("expected error when destination wallet does not exist")
+	}
+
+	balance, _, err := store.GetWalletBalance(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAmount(t, balance, 100)
+}
+
+func TestNegativeWithdrawIsRejected(t *testing.T) {
+	store := testStore(t)
+	walletID := newID()
+	if err := store.Deposit(walletID, 50); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Withdraw(walletID, -10); err == nil {
+		t.Fatal("expected error for negative amount")
+	}
+
+	balance, _, err := store.GetWalletBalance(walletID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAmount(t, balance, 50)
+}
+
+func TestBalanceMatchesWalletAfterDepositWithoutLedger(t *testing.T) {
+	store := testStore(t)
+	walletID := newID()
+	if err := store.Deposit(walletID, 75); err != nil {
+		t.Fatal(err)
+	}
+
+	walletBalance, _, err := store.GetWalletBalance(walletID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerBalance, err := store.SumBalanceFromTransactions(walletID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(walletBalance-ledgerBalance) > 0.0001 {
+		t.Fatalf("wallet balance %v and ledger balance %v are different", walletBalance, ledgerBalance)
+	}
+}
