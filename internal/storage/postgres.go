@@ -17,6 +17,7 @@ var (
 	ErrInvalidAmount     = errors.New("invalid amount")
 	ErrSameWallet        = errors.New("cannot transfer to same wallet")
 	ErrInvalidRequest    = errors.New("invalid request")
+	ErrRequestMismatch   = errors.New("request_id already used with different payload")
 )
 
 type Store struct {
@@ -53,16 +54,31 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pqErr) && pqErr.Code == "23505"
 }
 
+type ledgerSpec struct {
+	requestID string
+	operation string
+	from      *string
+	to        *string
+	amount    float64
+}
+
 type ledgerRow struct {
-	status string
-	reason sql.NullString
+	status     string
+	reason     sql.NullString
+	operation  string
+	amount     float64
+	fromWallet sql.NullString
+	toWallet   sql.NullString
 }
 
 func lookupRequest(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, requestID string) (*ledgerRow, error) {
 	var row ledgerRow
-	err := q.QueryRowContext(ctx, `SELECT status, reason FROM transactions WHERE request_id = $1`, requestID).Scan(&row.status, &row.reason)
+	err := q.QueryRowContext(ctx, `
+		SELECT status, reason, operation, amount, from_wallet, to_wallet
+		FROM transactions WHERE request_id = $1
+	`, requestID).Scan(&row.status, &row.reason, &row.operation, &row.amount, &row.fromWallet, &row.toWallet)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -70,6 +86,20 @@ func lookupRequest(ctx context.Context, q interface {
 		return nil, err
 	}
 	return &row, nil
+}
+
+func nullableStr(v sql.NullString) string {
+	if v.Valid {
+		return v.String
+	}
+	return ""
+}
+
+func ptrStr(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func errorFromReason(reason string) error {
@@ -86,12 +116,20 @@ func errorFromReason(reason string) error {
 		return ErrSameWallet
 	case ErrInvalidRequest.Error():
 		return ErrInvalidRequest
+	case ErrRequestMismatch.Error():
+		return ErrRequestMismatch
 	default:
 		return errors.New(reason)
 	}
 }
 
-func replay(row *ledgerRow) error {
+func replay(row *ledgerRow, spec ledgerSpec) error {
+	if row.operation != spec.operation ||
+		math.Abs(row.amount-spec.amount) > 0.0001 ||
+		nullableStr(row.fromWallet) != ptrStr(spec.from) ||
+		nullableStr(row.toWallet) != ptrStr(spec.to) {
+		return ErrRequestMismatch
+	}
 	if row.status == "completed" {
 		return nil
 	}
@@ -101,7 +139,7 @@ func replay(row *ledgerRow) error {
 	return errors.New("operation failed")
 }
 
-func insertLedger(ctx context.Context, tx *sql.Tx, requestID, operation string, fromWallet, toWallet *string, amount float64, status, reason string) error {
+func insertLedger(ctx context.Context, tx *sql.Tx, spec ledgerSpec, status, reason string) error {
 	var reasonArg any
 	if reason != "" {
 		reasonArg = reason
@@ -109,12 +147,46 @@ func insertLedger(ctx context.Context, tx *sql.Tx, requestID, operation string, 
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO transactions (request_id, operation, from_wallet, to_wallet, amount, status, reason)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, requestID, operation, fromWallet, toWallet, amount, status, reasonArg)
+	`, spec.requestID, spec.operation, spec.from, spec.to, spec.amount, status, reasonArg)
 	return err
 }
 
-func (s *Store) runOp(ctx context.Context, requestID string, apply func(*sql.Tx) error, record func(*sql.Tx, string, string) error) error {
-	if requestID == "" {
+func (s *Store) recordFailed(ctx context.Context, spec ledgerSpec, applyErr error) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return applyErr
+	}
+	defer tx.Rollback()
+
+	existing, err := lookupRequest(ctx, tx, spec.requestID)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return replay(existing, spec)
+	}
+
+	if err := insertLedger(ctx, tx, spec, "failed", applyErr.Error()); err != nil {
+		if isUniqueViolation(err) {
+			_ = tx.Rollback()
+			row, lookupErr := lookupRequest(ctx, s.DB, spec.requestID)
+			if lookupErr != nil {
+				return lookupErr
+			}
+			if row != nil {
+				return replay(row, spec)
+			}
+		}
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return applyErr
+}
+
+func (s *Store) runOp(ctx context.Context, spec ledgerSpec, apply func(*sql.Tx) error) error {
+	if spec.requestID == "" {
 		return ErrInvalidRequest
 	}
 
@@ -124,40 +196,33 @@ func (s *Store) runOp(ctx context.Context, requestID string, apply func(*sql.Tx)
 	}
 	defer tx.Rollback()
 
-	existing, err := lookupRequest(ctx, tx, requestID)
+	existing, err := lookupRequest(ctx, tx, spec.requestID)
 	if err != nil {
 		return err
 	}
 	if existing != nil {
-		return replay(existing)
+		return replay(existing, spec)
 	}
 
-	applyErr := apply(tx)
-	status := "completed"
-	reason := ""
-	if applyErr != nil {
-		status = "failed"
-		reason = applyErr.Error()
+	if applyErr := apply(tx); applyErr != nil {
+		_ = tx.Rollback()
+		return s.recordFailed(ctx, spec, applyErr)
 	}
 
-	if err := record(tx, status, reason); err != nil {
+	if err := insertLedger(ctx, tx, spec, "completed", ""); err != nil {
 		if isUniqueViolation(err) {
 			_ = tx.Rollback()
-			row, lookupErr := lookupRequest(ctx, s.DB, requestID)
+			row, lookupErr := lookupRequest(ctx, s.DB, spec.requestID)
 			if lookupErr != nil {
 				return lookupErr
 			}
 			if row != nil {
-				return replay(row)
+				return replay(row, spec)
 			}
 		}
 		return err
 	}
-
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return applyErr
+	return tx.Commit()
 }
 
 func (s *Store) GetWalletBalance(ctx context.Context, walletID string) (float64, string, error) {
@@ -194,7 +259,12 @@ func (s *Store) Deposit(ctx context.Context, requestID, walletID, currency strin
 	}
 
 	toWallet := walletID
-	return s.runOp(ctx, requestID, func(tx *sql.Tx) error {
+	return s.runOp(ctx, ledgerSpec{
+		requestID: requestID,
+		operation: "deposit",
+		to:        &toWallet,
+		amount:    amount,
+	}, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO wallets (wallet_id, balance, currency)
 			VALUES ($1, $2, $3)
@@ -214,8 +284,6 @@ func (s *Store) Deposit(ctx context.Context, requestID, walletID, currency strin
 			return ErrCurrencyMismatch
 		}
 		return nil
-	}, func(tx *sql.Tx, status, reason string) error {
-		return insertLedger(ctx, tx, requestID, "deposit", nil, &toWallet, amount, status, reason)
 	})
 }
 
@@ -228,7 +296,12 @@ func (s *Store) Withdraw(ctx context.Context, requestID, walletID, currency stri
 	}
 
 	fromWallet := walletID
-	return s.runOp(ctx, requestID, func(tx *sql.Tx) error {
+	return s.runOp(ctx, ledgerSpec{
+		requestID: requestID,
+		operation: "withdraw",
+		from:      &fromWallet,
+		amount:    amount,
+	}, func(tx *sql.Tx) error {
 		var currentCurrency string
 		err := tx.QueryRowContext(ctx, `SELECT currency FROM wallets WHERE wallet_id = $1 FOR UPDATE`, walletID).Scan(&currentCurrency)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -256,8 +329,6 @@ func (s *Store) Withdraw(ctx context.Context, requestID, walletID, currency stri
 			return ErrInsufficientFunds
 		}
 		return nil
-	}, func(tx *sql.Tx, status, reason string) error {
-		return insertLedger(ctx, tx, requestID, "withdraw", &fromWallet, nil, amount, status, reason)
 	})
 }
 
@@ -279,7 +350,13 @@ func (s *Store) Transfer(ctx context.Context, requestID, fromWallet, toWallet, c
 		return ErrInvalidRequest
 	}
 
-	return s.runOp(ctx, requestID, func(tx *sql.Tx) error {
+	return s.runOp(ctx, ledgerSpec{
+		requestID: requestID,
+		operation: "transfer",
+		from:      &fromWallet,
+		to:        &toWallet,
+		amount:    amount,
+	}, func(tx *sql.Tx) error {
 		if fromWallet == toWallet {
 			return ErrSameWallet
 		}
@@ -334,7 +411,5 @@ func (s *Store) Transfer(ctx context.Context, requestID, fromWallet, toWallet, c
 			return err
 		}
 		return nil
-	}, func(tx *sql.Tx, status, reason string) error {
-		return insertLedger(ctx, tx, requestID, "transfer", &fromWallet, &toWallet, amount, status, reason)
 	})
 }

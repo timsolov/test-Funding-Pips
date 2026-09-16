@@ -3,6 +3,11 @@ package storage
 import "context"
 
 func (s *Store) migrate(ctx context.Context) error {
+	if _, err := s.DB.ExecContext(ctx, `SELECT pg_advisory_lock(872364)`); err != nil {
+		return err
+	}
+	defer s.DB.ExecContext(context.Background(), `SELECT pg_advisory_unlock(872364)`)
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS wallets (
 			wallet_id UUID PRIMARY KEY,

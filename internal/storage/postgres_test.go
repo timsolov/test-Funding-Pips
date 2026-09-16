@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -153,4 +155,55 @@ func TestSameRequestIdIsNotAppliedTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertAmount(t, balance, 50)
+}
+
+func TestTransferRollbackIfCreditFails(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	from := newID()
+	to := newID()
+	if err := store.Deposit(ctx, newID(), from, "USD", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Deposit(ctx, newID(), to, "USD", 10); err != nil {
+		t.Fatal(err)
+	}
+
+	fn := "fail_credit_" + strings.ReplaceAll(to, "-", "")
+	trg := "trg_" + strings.ReplaceAll(to, "-", "")
+	_, err := store.DB.ExecContext(ctx, fmt.Sprintf(`
+		CREATE OR REPLACE FUNCTION %s() RETURNS trigger AS $$
+		BEGIN
+			RAISE EXCEPTION 'credit failed';
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER %s
+		BEFORE UPDATE ON wallets
+		FOR EACH ROW
+		WHEN (OLD.wallet_id = '%s'::uuid)
+		EXECUTE FUNCTION %s();
+	`, fn, trg, to, fn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.DB.ExecContext(context.Background(), fmt.Sprintf(
+			`DROP TRIGGER IF EXISTS %s ON wallets; DROP FUNCTION IF EXISTS %s();`, trg, fn,
+		))
+	})
+
+	if err := store.Transfer(ctx, newID(), from, to, "USD", 40); err == nil {
+		t.Fatal("expected credit to fail")
+	}
+
+	fromBal, _, err := store.GetWalletBalance(ctx, from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toBal, _, err := store.GetWalletBalance(ctx, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAmount(t, fromBal, 100)
+	assertAmount(t, toBal, 10)
 }

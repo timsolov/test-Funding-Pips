@@ -258,3 +258,7 @@ Each message get a 5s timeout from that parent context. On shutdown we drain NAT
 ### Accept interfaces, return structs
 
 Handlers now take `Store` and `Publisher` interfaces, not `*storage.Store` and `*nats.Client`. `main` still create the real structs (`NewStore`, `Connect`) and pass them in. This is the Go rule: accept interfaces, return structs. It also make tests easier later, we can fake store or nats without changing handlers.
+
+### Rollback money if the operation fail
+
+If deposit/withdraw/transfer fail after some SQL already ran, I do not commit that. The money transaction is rolled back, and the failed row is saved in a new transaction. So a broken transfer cannot keep the debit and mark the request as failed at the same time.
